@@ -35,7 +35,8 @@
 #define _F                    GPIO_NUM_18
 #define _G                    GPIO_NUM_19
 
-#define DIGI                  GPIO_NUM_33
+#define DIGI_1                  GPIO_NUM_4
+#define DIGI_2                  GPIO_NUM_33
 
 /********************************************
 ****** CONSTANTS N PREPROCESSOR STUFF *******
@@ -55,7 +56,9 @@ const gpio_num_t segments[] = {
 	_A, _B, _C, _D, _E, _F, _G
 };
 
-const displayDigits[] = {
+const int segmentLength = sizeof(segments)/sizeof(segments[0]);
+
+const int displayDigits[] = {
   0b00111111, /* 0 */
   0b00000110, /* 1 */
   0b01011011, /* 2 */
@@ -68,6 +71,12 @@ const displayDigits[] = {
   0b01100111  /* 9 */
 };
 
+const gpio_num_t commons[] = {
+  DIGI_1, DIGI_2
+};
+
+const int commonLength = sizeof(commons)/sizeof(commons[0]);
+
 #define A_BIT 1
 #define B_BIT 2
 #define C_BIT 4
@@ -75,6 +84,8 @@ const displayDigits[] = {
 #define E_BIT 16
 #define F_BIT 32
 #define G_BIT 64
+
+const int digitPosition[] = {A_BIT, B_BIT, C_BIT, D_BIT, E_BIT, F_BIT, G_BIT};
 
 
 /********************************************
@@ -98,7 +109,7 @@ PubSubClient client(espClient);
 char msg[25];
 String Payload;
 long count = 0;
-
+int state = true;
 
 int VsenseRaw = 0;
 float ADCVoltage = 0.0;
@@ -108,6 +119,8 @@ float TempK_Sensor1 = 0.0;
 int refTemp = 25; // Can be overriden by the MQTT
 double Rt = 0.0;
 int Beta =  3950; // Can be overriden by the MQTT
+
+
 
 /********************************************
 **************** WIFI CONFIG ****************
@@ -125,23 +138,34 @@ Preferences preferences;  // Init Preference to store data permanently
 
 void resetDisplay() {
 	for (int i = 0; i < segmentLength ; i++) {
-		// digitalWrite(segments[i], HIGH);
-    GPIO.out_w1ts = ((uint32_t)1 << segments[i]); // Black Magic alternative
+		digitalWrite(segments[i], HIGH);
+    // GPIO.out_w1ts = ((uint32_t)1 << segments[i]); // Black Magic alternative
 	}
 	for (int i = 0 ; i < commonLength ; i++) {
-		// digitalWrite(commons[i], LOW);
-    GPIO.out_w1ts = ((uint32_t)0 << segments[i]);
+		digitalWrite(commons[i], LOW);
+    // GPIO.out_w1ts = ((uint32_t)0 << commons[i]);
 	}
+}
+
+void initDisplays() {
+	// Turn on segment 
+	pinMode(DIGI_1, OUTPUT);
+	pinMode(DIGI_2, OUTPUT);
+
+	for (int i = 0 ; i < segmentLength ; i++ ) {
+		pinMode(segments[i], OUTPUT);
+	}
+	// resetDisplay();
 }
 
 void displayOneDigit(int n,int pos) {
   for (int i = 0; i < segmentLength; i++) {
     if (displayDigits[n] & digitPosition[i]) 
-      // digitalWrite(segments[i], LOW);
-      GPIO.out_w1ts = ((uint32_t)0 << segments[i]);
+      digitalWrite(segments[i], LOW);
+      // GPIO.out_w1ts = ((uint32_t)0 << segments[i]);
     }
-    // digitalWrite(commons[pos], HIGH);
-    GPIO.out_w1ts = ((uint32_t)1 << common[pos]);
+    digitalWrite(commons[pos], HIGH);
+    // GPIO.out_w1ts = ((uint32_t)1 << commons[pos]);
 }
 
 
@@ -188,16 +212,15 @@ void taskMeasureTemperature(void * parameters) {
     vTaskDelay(1000);
 }
 
-void taskDisplay() {
-
+void taskDisplay(void * parameters) {
   state = !state;
   if (state) {
-    displayOneDigit(abs(floor(numberDisplay % 10)), 0);
+    displayOneDigit(abs(floor((int)TempC_Sensor1 % 10)), 0);
   } else {
-    displayOneDigit(abs(floor(numberDisplay / 10)), 1);
+    displayOneDigit(abs(floor((int)TempC_Sensor1 / 10)), 1);
   }
   resetDisplay();
-  vTaskDelay(100);
+  vTaskDelay(200);
 
 }
 
@@ -207,6 +230,8 @@ void setup() {
   adc1_config_channel_atten(THERMISTOR_INPUT, ADC_ATTEN);
 
   Serial.println("WTF IS GOING ON");
+
+  initDisplays();
 
   // Temp Task
   xTaskCreatePinnedToCore(
